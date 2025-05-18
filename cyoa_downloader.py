@@ -4,14 +4,13 @@ import requests
 import re
 import logging
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, urljoin, urlunparse,unquote
+from urllib.parse import urlparse, urljoin, urlunparse, unquote
 from typing import Optional, List, Tuple
 import mimetypes
 import base64
 import tempfile
-import os
 import uuid
-import zipfile  
+import zipfile
 import shutil
 from datetime import datetime
 import argparse
@@ -27,15 +26,42 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 wait_time = 60
 
+
 def main() -> None:
     global wait_time
-    parser = argparse.ArgumentParser(description="Download and process a CYOA project from a given URL. External images will be eiter added to the zip file or embedded to the project. Downloaded files can be viewed for example by using ICC plus: https://hikawasisters.neocities.org/ICCPlus/")
+    parser = argparse.ArgumentParser(
+        description="Download and process a CYOA project from a given URL. External images will be eiter added to the zip file or embedded to the project. Downloaded files can be viewed for example by using ICC plus: https://hikawasisters.neocities.org/ICCPlus/"
+    )
 
-    parser.add_argument("url", help="The URL of the project to download.")
-    parser.add_argument("filename", nargs="?", default="", help="Optional output filename.")
-    parser.add_argument("-z", "--zip", action="store_true", help="Zip the output folder.")
-    parser.add_argument("-b", "--both", action="store_true", help="Create both embedded json and zip file")
-    parser.add_argument("-w",'--wait-time', type=int, default=60,help='Wait time in seconds before retrying after a 429 response (default: 60)' )
+    parser.add_argument(
+        "url",
+        help="The URL of the project to download.",
+    )
+    parser.add_argument(
+        "filename",
+        nargs="?",
+        default="",
+        help="Optional output filename.",
+    )
+    parser.add_argument(
+        "-z",
+        "--zip",
+        action="store_true",
+        help="Zip the output folder.",
+    )
+    parser.add_argument(
+        "-b",
+        "--both",
+        action="store_true",
+        help="Create both embedded json and zip file",
+    )
+    parser.add_argument(
+        "-w",
+        "--wait-time",
+        type=int,
+        default=60,
+        help="Wait time in seconds before retrying after a 429 response (default: 60)",
+    )
     args = parser.parse_args()
 
     wait_time = args.wait_time
@@ -52,7 +78,6 @@ def main() -> None:
     logger.info(f"Zip output enabled: {'Yes' if zip_output else 'No'}")
     logger.info(f"Both outputs enabled: {'Yes' if both_output else 'No'}")
 
-    
     if zip_output:
         embed_images = False
     else:
@@ -69,13 +94,12 @@ def main() -> None:
 
     cleaned_project_source = extract_json_like_block(project_source)
 
-
     if not file_name:
-        file_name = clean_url_path_component(get_first_folder_from_url(project_url) )
+        file_name = clean_url_path_component(get_first_folder_from_url(project_url))
 
     if not file_name:
         file_name = clean_url_path_component(get_first_subdomain(project_url))
-        
+
     if not file_name:
         file_name = "downloaded_cyoa"
 
@@ -85,15 +109,22 @@ def main() -> None:
     if zip_output:
         temp_path = create_random_temp_folder()
 
-    embed_result, download_result = process_images(cleaned_project_source,base_url,embed=embed_images,download=zip_output,temp_folder=temp_path, wait_time=20)
+    embed_result, download_result = process_images(
+        cleaned_project_source,
+        base_url,
+        embed=embed_images,
+        download=zip_output,
+        temp_folder=temp_path,
+        wait_time=20,
+    )
 
     if embed_images or both_output:
         logger.info(f"Saving file: {file_name+'.json'}")
-        save_string_to_file(embed_result, file_name+'.json')
+        save_string_to_file(embed_result, file_name + ".json")
     if both_output or not embed_images:
-        save_string_to_file(download_result,'project.json',temp_path)
+        save_string_to_file(download_result, "project.json", temp_path)
         logger.info(f"Saving file: {file_name+'.zip'}")
-        zip_temp_folder(temp_path, zip_name=file_name+'.zip')
+        zip_temp_folder(temp_path, zip_name=file_name + ".zip")
         delete_temp_folder(temp_path)
 
     logger.info("Download successful.")
@@ -103,8 +134,8 @@ def get_project_source(url: str, depth: int = 0) -> Tuple[Optional[str], str]:
     if depth > 3:
         logger.warning(f"Max recursion depth reached at {url}")
         return None, ""
-    
-    if 'cyoa.cafe' in url:
+
+    if "cyoa.cafe" in url:
         logger.warning("Cyoa.cafe link detected, attempting to find real url")
         url = get_iframe_url_from_cyoa_cafe(url)
         if not url:
@@ -113,7 +144,7 @@ def get_project_source(url: str, depth: int = 0) -> Tuple[Optional[str], str]:
 
     logger.info(f"Checking {url}")
 
-    default_location = strip_document_from_url(url)+'project.json'
+    default_location = strip_document_from_url(url) + "project.json"
 
     if url_file_exists(default_location):
         return get_source(default_location), strip_document_from_url(url)
@@ -126,15 +157,19 @@ def get_project_source(url: str, depth: int = 0) -> Tuple[Optional[str], str]:
         found_urls = extract_placeholder_url(js_script)
         if found_urls:
             for found_url in found_urls:
-                full_url = found_url if 'http' in found_url else url.rstrip('/') + '/' + found_url
+                full_url = (
+                    found_url
+                    if "http" in found_url
+                    else url.rstrip("/") + "/" + found_url
+                )
                 project_source = get_source(full_url)
                 if project_source:
                     logger.info("Found project file.")
                     return project_source, url
 
         logger.info("File not found, looking for embedded project.")
-        start_string = 'Store({state:{app:'
-        end_string = '},getters'
+        start_string = "Store({state:{app:"
+        end_string = "},getters"
 
         if start_string in js_script and end_string in js_script:
             try:
@@ -155,6 +190,7 @@ def get_project_source(url: str, depth: int = 0) -> Tuple[Optional[str], str]:
 
     return None, ""
 
+
 def url_file_exists(url: str, timeout: int = 5) -> bool:
     """
     Checks if a file exists at the given URL by sending a HEAD request.
@@ -172,6 +208,7 @@ def url_file_exists(url: str, timeout: int = 5) -> bool:
     except requests.RequestException:
         return False
 
+
 def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
     """
     Given a game URL, fetches the corresponding iframe URL from the API.
@@ -188,10 +225,10 @@ def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
     """
     # Parse the URL to extract the path
     parsed_url = urlparse(game_url)
-    path_parts = parsed_url.path.strip('/').split('/')
+    path_parts = parsed_url.path.strip("/").split("/")
 
     # Validate the URL structure
-    if len(path_parts) != 2 or path_parts[0] != 'game':
+    if len(path_parts) != 2 or path_parts[0] != "game":
         raise ValueError(f"Invalid game URL format: {game_url}")
 
     game_id = path_parts[1]
@@ -208,21 +245,25 @@ def get_iframe_url_from_cyoa_cafe(game_url: str) -> str:
         data = response.json()
 
         # Extract the 'iframe_url' from the JSON data
-        iframe_url = data.get('iframe_url')
+        iframe_url = data.get("iframe_url")
         if not iframe_url:
-            raise ValueError(f"'iframe_url' not found in the API response for game ID: {game_id}")
+            raise ValueError(
+                f"'iframe_url' not found in the API response for game ID: {game_id}"
+            )
 
         return iframe_url
 
     except requests.RequestException as e:
         raise requests.RequestException(f"HTTP request failed: {e}")
 
+
 def extract_json_like_block(text: str) -> str:
-    start = text.find('{')
-    end = text.rfind('}') + 1
+    start = text.find("{")
+    end = text.rfind("}") + 1
     if start != -1 and end != -1 and start < end:
         return text[start:end]
-    return ''
+    return ""
+
 
 def get_source(url: str) -> Optional[str]:
     try:
@@ -234,27 +275,28 @@ def get_source(url: str) -> Optional[str]:
         logger.error(f"Error downloading {url}: {e}")
         return None
 
+
 def find_scripts(html_source: str, base_url: Optional[str] = None) -> List[str]:
-    soup = BeautifulSoup(html_source, 'html.parser')
-    script_tags = soup.find_all('script')
+    soup = BeautifulSoup(html_source, "html.parser")
+    script_tags = soup.find_all("script")
     script_contents = []
 
     for script in script_tags:
-        if 'document.createElement' in str(script):
-            #this script might contain some dynamic loading bs, try to find the app.js file from it
+        if "document.createElement" in str(script):
+            # this script might contain some dynamic loading bs, try to find the app.js file from it
             src = extract_app_js_path(str(script))
-            if base_url and not src.startswith(('http://', 'https://')):
-                src = base_url.rstrip('/') + '/' + src.lstrip('/')
+            if base_url and not src.startswith(("http://", "https://")):
+                src = base_url.rstrip("/") + "/" + src.lstrip("/")
             try:
                 response = requests.get(src)
                 if response.status_code == 200:
                     script_contents.append(response.text)
             except requests.RequestException as e:
                 logger.error(f"Failed to fetch {src}: {e}")
-        elif script.get('src'):
-            src = script['src']
-            if base_url and not src.startswith(('http://', 'https://')):
-                src = base_url.rstrip('/') + '/' + src.lstrip('/')
+        elif script.get("src"):
+            src = script["src"]
+            if base_url and not src.startswith(("http://", "https://")):
+                src = base_url.rstrip("/") + "/" + src.lstrip("/")
             try:
                 response = requests.get(src)
                 if response.status_code == 200:
@@ -262,9 +304,10 @@ def find_scripts(html_source: str, base_url: Optional[str] = None) -> List[str]:
             except requests.RequestException as e:
                 logger.error(f"Failed to fetch {src}: {e}")
         else:
-            script_contents.append(script.string or '')
+            script_contents.append(script.string or "")
 
     return script_contents
+
 
 def extract_placeholder_url(source: str) -> List[str]:
     pattern = r'\$store\.commit\("loadApp",.*?\)\}\},e\.open\("GET","(.*?)",!0\)'
@@ -276,16 +319,18 @@ def extract_placeholder_url(source: str) -> List[str]:
 
 
 def extract_iframe_urls(html_source: str) -> List[str]:
-    soup = BeautifulSoup(html_source, 'html.parser')
-    iframe_tags = soup.find_all('iframe')
-    return [iframe.get('src') for iframe in iframe_tags if iframe.get('src')]
+    soup = BeautifulSoup(html_source, "html.parser")
+    iframe_tags = soup.find_all("iframe")
+    return [iframe.get("src") for iframe in iframe_tags if iframe.get("src")]
+
 
 def get_first_folder_from_url(url: str) -> str:
     parsed_url = urlparse(url)
-    path = parsed_url.path.strip('/')
+    path = parsed_url.path.strip("/")
     if path:
-        return path.split('/')[0]
-    return ''
+        return path.split("/")[0]
+    return ""
+
 
 def extract_app_js_path(code: str) -> str:
     """
@@ -299,7 +344,8 @@ def extract_app_js_path(code: str) -> str:
     """
     pattern = r"js/app\.[^'\"]+\.js"
     match = re.search(pattern, code)
-    return match.group(0) if match else ''
+    return match.group(0) if match else ""
+
 
 def get_first_subdomain(url: str) -> str:
     """
@@ -314,8 +360,9 @@ def get_first_subdomain(url: str) -> str:
     extracted = tldextract.extract(url)
     subdomain = extracted.subdomain
     if subdomain:
-        return subdomain.split('.')[0]
-    return ''
+        return subdomain.split(".")[0]
+    return ""
+
 
 def clean_url_path_component(encoded_str: str) -> str:
     """
@@ -331,16 +378,17 @@ def clean_url_path_component(encoded_str: str) -> str:
     decoded_str = unquote(encoded_str)
 
     # Define allowed characters: letters, digits, underscore, hyphen, period, and slash
-    allowed_chars_pattern = r'[^A-Za-z0-9_\-./]'
+    allowed_chars_pattern = r"[^A-Za-z0-9_\-./]"
 
     # Remove disallowed characters
-    cleaned_str = re.sub(allowed_chars_pattern, '', decoded_str)
+    cleaned_str = re.sub(allowed_chars_pattern, "", decoded_str)
 
     return cleaned_str
 
+
 def save_string_to_file(content: str, filename: str, path: str = "") -> None:
     """
-    Saves a string to a file. The filename is cleaned of invalid characters, 
+    Saves a string to a file. The filename is cleaned of invalid characters,
     and if the file already exists, a number is appended to the filename.
 
     Parameters:
@@ -348,7 +396,7 @@ def save_string_to_file(content: str, filename: str, path: str = "") -> None:
         filename (str): The desired filename.
         path (str, optional): The folder path to save the file into.
     """
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+    filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
     base, extension = os.path.splitext(filename)
 
     # Use provided path, or default to current directory
@@ -360,13 +408,18 @@ def save_string_to_file(content: str, filename: str, path: str = "") -> None:
 
     counter = 1
     while os.path.exists(new_filename):
-        new_filename = os.path.join(path, f"{base}_{counter}{extension}") if path else f"{base}_{counter}{extension}"
+        new_filename = (
+            os.path.join(path, f"{base}_{counter}{extension}")
+            if path
+            else f"{base}_{counter}{extension}"
+        )
         counter += 1
 
-    with open(new_filename, 'w', encoding='utf-8') as file:
+    with open(new_filename, "w", encoding="utf-8") as file:
         file.write(content)
 
     logger.info(f"File saved as: {new_filename}")
+
 
 def process_images(
     input_str: str,
@@ -374,7 +427,7 @@ def process_images(
     embed: bool = False,
     download: bool = False,
     temp_folder: str = None,
-    wait_time: int = 20
+    wait_time: int = 20,
 ) -> tuple[str, str]:
     """
     Processes image references in a JSON-like string by embedding them as base64 data URIs,
@@ -393,7 +446,7 @@ def process_images(
             - The modified string with base64-encoded image references (if embed is True).
             - The modified string with local image paths (if download is True).
     """
-    data_uri_pattern = re.compile(r'^data:image\/[a-zA-Z0-9.+-]+;base64,')
+    data_uri_pattern = re.compile(r"^data:image\/[a-zA-Z0-9.+-]+;base64,")
 
     if download and not temp_folder:
         raise ValueError("temp_folder must be specified when download is True.")
@@ -410,14 +463,17 @@ def process_images(
 
     def process_match(match, operation):
         image_path = match.group(1)
-        
 
         if data_uri_pattern.match(image_path):
-            logger.info(f"Skipping already embedded image.")
+            logger.info("Skipping already embedded image.")
             return match.group(0)
 
         logger.info(f"Processing image: {image_path}")
-        image_url = image_path if image_path.startswith(('http://', 'https://')) else urljoin(base_url + '/', image_path)
+        image_url = (
+            image_path
+            if image_path.startswith(("http://", "https://"))
+            else urljoin(base_url + "/", image_path)
+        )
 
         headers = get_headers_for_url(image_url)
 
@@ -426,35 +482,37 @@ def process_images(
             try:
                 response = requests.get(image_url, headers=headers)
                 if response.status_code == 429:
-                    logger.warning(f"Received 429 Too Many Requests for {image_url}. Waiting {wait_time} seconds before retrying...")
+                    logger.warning(
+                        f"Received 429 Too Many Requests for {image_url}. Waiting {wait_time} seconds before retrying..."
+                    )
                     time.sleep(wait_time)
                     continue
                 response.raise_for_status()
 
                 # Determine MIME type from Content-Type header
-                mime_type = response.headers.get('Content-Type')
+                mime_type = response.headers.get("Content-Type")
                 if not mime_type:
                     # Fallback to mimetypes module
                     mime_type, _ = mimetypes.guess_type(image_url)
                     if not mime_type:
-                        mime_type = 'application/octet-stream'
+                        mime_type = "application/octet-stream"
 
-                if operation == 'embed':
-                    b64_data = base64.b64encode(response.content).decode('utf-8')
-                    data_uri = f'data:{mime_type};base64,{b64_data}'
+                if operation == "embed":
+                    b64_data = base64.b64encode(response.content).decode("utf-8")
+                    data_uri = f"data:{mime_type};base64,{b64_data}"
                     return f'"image":"{data_uri}"'
 
-                elif operation == 'download':
+                elif operation == "download":
                     # Determine file extension from MIME type
                     ext = mimetypes.guess_extension(mime_type)
                     if not ext:
-                        ext = '.bin'
+                        ext = ".bin"
 
                     # Generate a safe filename
                     parsed_url = urlparse(image_url)
                     filename = os.path.basename(parsed_url.path)
                     if not filename:
-                        filename = 'image'
+                        filename = "image"
                     if not os.path.splitext(filename)[1]:
                         filename += ext
 
@@ -468,7 +526,7 @@ def process_images(
                         save_path = os.path.join(images_folder, filename)
                         counter += 1
 
-                    with open(save_path, 'wb') as f:
+                    with open(save_path, "wb") as f:
                         f.write(response.content)
 
                     logger.info(f"Saved image: {save_path}")
@@ -486,16 +544,24 @@ def process_images(
         return match.group(0)
 
     if embed:
-        embed_str = re.sub(pattern, lambda m: process_match(m, 'embed'), embed_str, flags=re.IGNORECASE)
+        embed_str = re.sub(
+            pattern, lambda m: process_match(m, "embed"), embed_str, flags=re.IGNORECASE
+        )
     if download:
-        download_str = re.sub(pattern, lambda m: process_match(m, 'download'), download_str, flags=re.IGNORECASE)
+        download_str = re.sub(
+            pattern,
+            lambda m: process_match(m, "download"),
+            download_str,
+            flags=re.IGNORECASE,
+        )
 
     return embed_str, download_str
+
 
 def create_random_temp_folder(prefix: str = "cyoa_") -> str:
     """
     Creates a random temporary folder that does not already exist.
-    
+
     Parameters:
         prefix (str): Optional prefix for the folder name.
 
@@ -509,7 +575,7 @@ def create_random_temp_folder(prefix: str = "cyoa_") -> str:
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
             return folder_path
-        
+
 
 def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     """
@@ -528,13 +594,13 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
 
     if not zip_name:
         zip_name = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    if not zip_name.endswith('.zip'):
+    if not zip_name.endswith(".zip"):
         zip_filename = f"{zip_name}.zip"
     else:
         zip_filename = f"{zip_name}"
     zip_filepath = os.path.join(os.getcwd(), zip_filename)
 
-    with zipfile.ZipFile(zip_filepath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(temp_path):
             for file in files:
                 abs_path = os.path.join(root, file)
@@ -559,7 +625,6 @@ def delete_temp_folder(temp_path: str) -> None:
         logger.warning(f"Attempted to delete non-existent folder: {temp_path}")
 
 
-
 def strip_document_from_url(url: str) -> str:
     """
     Removes the last path segment from the URL if it does not end with a slash,
@@ -575,22 +640,22 @@ def strip_document_from_url(url: str) -> str:
     path = parsed.path
 
     # Only modify the path if it does not end with a slash
-    if not path.endswith('/'):
+    if not path.endswith("/"):
         # Split the path into segments
-        segments = path.split('/')
+        segments = path.split("/")
         # Remove the last segment
         segments = segments[:-1]
         # Reconstruct the path
-        path = '/'.join(segments)
+        path = "/".join(segments)
         # Ensure the path ends with a slash if it's not empty
-        if path and not path.endswith('/'):
-            path += '/'
+        if path and not path.endswith("/"):
+            path += "/"
         # If the path is empty, set it to '/'
         elif not path:
-            path = '/'
+            path = "/"
 
     # Reconstruct the URL with the modified path and empty query
-    stripped_url = urlunparse(parsed._replace(path=path, query=''))
+    stripped_url = urlunparse(parsed._replace(path=path, query=""))
     return stripped_url
 
 
@@ -607,10 +672,10 @@ def get_headers_for_url(url: str) -> dict | None:
     """
 
     DOMAIN_HEADERS = {
-    'umgur.com':{"user-agent": "curl/8.1.1","accept": "*/*"},
-    # Add more domain-specific headers as needed
+        "umgur.com": {"user-agent": "curl/8.1.1", "accept": "*/*"},
+        # Add more domain-specific headers as needed
     }
-          
+
     try:
         parsed_url = urlparse(url)
         domain = parsed_url.hostname
@@ -620,6 +685,7 @@ def get_headers_for_url(url: str) -> dict | None:
     except Exception as e:
         print(f"Error parsing URL '{url}': {e}")
         return None
+
 
 if __name__ == "__main__":
     main()
