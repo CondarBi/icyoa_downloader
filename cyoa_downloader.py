@@ -11,7 +11,6 @@ import mimetypes
 import base64
 import tempfile
 import uuid
-import zipfile
 import shutil
 from datetime import datetime
 import argparse
@@ -42,19 +41,49 @@ def main() -> None:
         "filename",
         nargs="?",
         default="",
-        help="Optional output filename.",
+        help="(Optional) Name of CYOA.",
+    )
+    parser.add_argument(
+        "-j",
+        "--json",
+        action="store_true",
+        help="Save as .json file with all images embedded within it.",
+    )
+    parser.add_argument(
+        "-r",
+        "--raw",
+        action="store_true",
+        help="Save downloaded files directly to disk.",
     )
     parser.add_argument(
         "-z",
         "--zip",
         action="store_true",
-        help="Zip the output folder.",
+        help="Save as compressed .zip file.",
+    )
+    parser.add_argument(
+        "-t",
+        "--tar",
+        action="store_true",
+        help="Save as uncompressed .tar file.",
+    )
+    parser.add_argument(
+        "-g",
+        "--gz",
+        action="store_true",
+        help="Save as compressed .tar.gz file.",
     )
     parser.add_argument(
         "-b",
-        "--both",
+        "--bz2",
         action="store_true",
-        help="Create both embedded json and zip file",
+        help="Save as compressed .tar.bz2 file.",
+    )
+    parser.add_argument(
+        "-x",
+        "--xz",
+        action="store_true",
+        help="Save as compressed .tar.xz file.",
     )
     parser.add_argument(
         "-w",
@@ -71,22 +100,18 @@ def main() -> None:
 
     url = args.url
     file_name = args.filename
-    zip_output = args.zip
-    both_output = args.both
+    saveFormats = {}
+    saveFormats["json"] = args.json
+    saveFormats["raw"] = args.raw
+    saveFormats["zip"] = args.zip
+    saveFormats["tar"] = args.tar
+    saveFormats["gz"] = args.gz
+    saveFormats["bz2"] = args.bz2
+    saveFormats["xz"] = args.xz
 
     logger.info(f"URL: {url}")
     logger.info(f"Filename: {file_name if file_name else '[auto-generated]'}")
-    logger.info(f"Zip output enabled: {'Yes' if zip_output else 'No'}")
-    logger.info(f"Both outputs enabled: {'Yes' if both_output else 'No'}")
-
-    if zip_output:
-        embed_images = False
-    else:
-        embed_images = True
-
-    if both_output:
-        zip_output = True
-        embed_images = True
+    logger.info(f"Zip output enabled: {'Yes' if saveFormats['zip'] else 'No'}")
 
     project_source, project_url = get_project_source(url)
     if not project_source:
@@ -107,26 +132,38 @@ def main() -> None:
     base_url = strip_document_from_url(project_url)
 
     temp_path = None
-    if zip_output:
+    needTempFolder = False
+    for i in ("raw", "zip", "tar", "gz", "bz2", "xz"):
+        if saveFormats[i]:
+            needTempFolder = True
+    if needTempFolder:
         temp_path = create_random_temp_folder()
 
     embed_result, download_result = process_images(
-        cleaned_project_source,
-        base_url,
-        embed=embed_images,
-        download=zip_output,
+        input_str=cleaned_project_source,
+        base_url=base_url,
+        embed=saveFormats["json"],
+        download=bool(temp_path),
         temp_folder=temp_path,
         wait_time=20,
     )
 
-    if embed_images or both_output:
-        logger.info(f"Saving file: {file_name+'.json'}")
+    if saveFormats["json"]:
+        logger.info(f"Saving file: {file_name}.json")
         save_string_to_file(embed_result, file_name + ".json")
-    if both_output or not embed_images:
+    if temp_path:
         save_string_to_file(download_result, "project.json", temp_path)
-        logger.info(f"Saving file: {file_name+'.zip'}")
-        zip_temp_folder(temp_path, zip_name=file_name + ".zip")
-        delete_temp_folder(temp_path)
+        if saveFormats["zip"]:
+            logger.info(f"Saving file: {file_name}.zip")
+            zip_temp_folder(temp_path, zip_name=f"{file_name}.zip")
+        for format in ("tar", "gz", "bz2", "xz"):
+            if saveFormats[format]:
+                tarchive_temp_folder(temp_path, fileNameCore=file_name, format=format)
+
+        if saveFormats["raw"]:
+            moveTempFolder(temp_path, f"./{file_name}")
+        else:
+            delete_temp_folder(temp_path)
 
     logger.info("Download successful.")
 
@@ -578,6 +615,28 @@ def create_random_temp_folder(prefix: str = "cyoa_") -> str:
             return folder_path
 
 
+def archivePrep(
+    temp_path: str,
+    fileNameCore: str,
+    format: str,
+) -> str:
+    if not os.path.isdir(temp_path):
+        raise ValueError(f"{temp_path} is not a valid directory.")
+
+    if not fileNameCore:
+        fileNameCore = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if format == "zip":
+        extension = ".zip"
+    elif format == "tar":
+        extension = ".tar"
+    else:
+        extension = f".tar.{format}"
+    if not fileNameCore.endswith(extension):
+        fileNameCore += extension
+    filePath = os.path.join(os.getcwd(), fileNameCore)
+    return filePath
+
+
 def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     """
     Zips the contents of a temporary folder into a zip file in the current directory.
@@ -590,17 +649,9 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
     Returns:
         str: The path to the created zip file.
     """
-    if not os.path.isdir(temp_path):
-        raise ValueError(f"{temp_path} is not a valid directory.")
+    import zipfile
 
-    if not zip_name:
-        zip_name = f"archive_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    if not zip_name.endswith(".zip"):
-        zip_filename = f"{zip_name}.zip"
-    else:
-        zip_filename = f"{zip_name}"
-    zip_filepath = os.path.join(os.getcwd(), zip_filename)
-
+    zip_filepath = archivePrep(temp_path=temp_path, fileNameCore=zip_name, format="zip")
     with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(temp_path):
             for file in files:
@@ -610,6 +661,42 @@ def zip_temp_folder(temp_path: str, zip_name: str = "") -> str:
 
     logger.info(f"Created zip file: {zip_filepath}")
     return zip_filepath
+
+
+def tarchive_temp_folder(
+    temp_path: str,
+    fileNameCore: str,
+    format: str,
+) -> str:
+    import tarfile
+
+    filePathFull = archivePrep(
+        temp_path=temp_path, fileNameCore=fileNameCore, format=format
+    )
+    if format == "tar":
+        mode = "x"
+    else:
+        mode = f"x:{format}"
+    with tarfile.open(filePathFull, mode) as tarf:
+        for root, _, files in os.walk(temp_path):
+            for file in files:
+                abs_path = os.path.join(root, file)
+                rel_path = os.path.relpath(abs_path, start=temp_path)
+                tarf.add(abs_path, arcname=rel_path)
+    logger.info(f"Created archive: {filePathFull}")
+    return filePathFull
+
+
+def moveTempFolder(
+    temp_path: str,
+    dest_path: str,
+) -> None:
+    os.makedirs(os.path.join(dest_path, "images"), exist_ok=True)
+    for root, _, files in os.walk(temp_path):
+        for file in files:
+            abs_path = os.path.join(root, file)
+            rel_path = os.path.relpath(abs_path, start=temp_path)
+            shutil.move(src=abs_path, dst=os.path.join(dest_path, rel_path))
 
 
 def delete_temp_folder(temp_path: str) -> None:
